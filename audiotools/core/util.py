@@ -250,12 +250,43 @@ def find_audio(folder: str, ext: List[str] = AUDIO_EXTENSIONS):
         files += folder.glob(f"**/*{x}")
     return files
 
+#jm, EEG version of the find_audio function
+EEG_EXTENSIONS = [".fif"]
+def find_eeg(folder: str, ext: List[str] = EEG_EXTENSIONS):
+    """Finds all eeg files in a directory recursively.
+    Returns a list.
+
+    Parameters
+    ----------
+    folder : str
+        Folder to look for eeg files in, recursively.
+    ext : List[str], optional
+        Extensions to look for without the ., by default
+        ``['.fif']``.
+    """
+    folder = Path(folder)
+    # Take care of case where user has passed in an audio file directly
+    # into one of the calling functions.
+    if str(folder).endswith(tuple(ext)):
+        # if, however, there's a glob in the path, we need to
+        # return the glob, not the file.
+        if "*" in str(folder):
+            return glob.glob(str(folder), recursive=("**" in str(folder)))
+        else:
+            return [folder]
+
+    files = []
+    for x in ext:
+        files += folder.glob(f"**/*{x}")
+    return files
+
 
 def read_sources(
     sources: List[str],
     remove_empty: bool = True,
     relative_path: str = "",
     ext: List[str] = AUDIO_EXTENSIONS,
+    EEG: bool = False
 ):
     """Reads audio sources that can either be folders
     full of audio files, or CSV files that contain paths
@@ -292,10 +323,15 @@ def read_sources(
                         x["path"] = str(relative_path / x["path"])
                     _files.append(x)
         else:
-            for x in find_audio(source, ext=ext):
-                x = str(relative_path / x)
-                _files.append({"path": x})
-        files.append(sorted(_files, key=lambda x: x["path"]))
+            if EEG:
+                for x in find_eeg(source, ext=ext):
+                    x = str(relative_path / x)
+                    _files.append({"path": x})
+            else:
+                for x in find_audio(source, ext=ext):
+                    x = str(relative_path / x)
+                    _files.append({"path": x})
+        files.append(sorted(_files, key=lambda x: x["path"]))        
     return files
 
 

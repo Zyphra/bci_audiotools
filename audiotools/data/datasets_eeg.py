@@ -12,7 +12,7 @@ from ..core import AudioSignal
 from ..core import util
 
 
-class EEGLoader:
+class AudioLoader:
     """Loads audio endlessly from a list of audio sources
     containing paths to audio files. Audio sources can be
     folders full of audio files (which are found via file
@@ -47,12 +47,17 @@ class EEGLoader:
         weights: List[float] = None,
         transform: Callable = None,
         relative_path: str = "",
-        ext: List[str] = util.AUDIO_EXTENSIONS,
+        # ext: List[str] = util.AUDIO_EXTENSIONS,
+        ext: List[str] = None,
         shuffle: bool = True,
         shuffle_state: int = 0,
+        EEG: bool = False
     ):
+        if ext is None:
+            ext = util.EEG_EXTENSIONS if EEG else util.AUDIO_EXTENSIONS
+
         self.audio_lists = util.read_sources(
-            sources, relative_path=relative_path, ext=ext
+            sources, relative_path=relative_path, ext=ext, EEG=EEG
         )
 
         self.audio_indices = [
@@ -67,6 +72,8 @@ class EEGLoader:
         self.sources = sources
         self.weights = weights
         self.transform = transform
+        self.EEG = EEG #jm
+
 
     def __call__(
         self,
@@ -95,8 +102,9 @@ class EEGLoader:
                 state, self.audio_lists, p=self.weights
             )
 
-        path = audio_info["path"]
+        path = audio_info["path"] 
         signal = AudioSignal.zeros(duration, sample_rate, num_channels)
+        # import pdb; pdb.set_trace()
 
         if path != "none":
             if offset is None:
@@ -105,6 +113,7 @@ class EEGLoader:
                     duration=duration,
                     state=state,
                     loudness_cutoff=loudness_cutoff,
+                    EEG=self.EEG
                 )
             else:
                 signal = AudioSignal(
@@ -150,7 +159,7 @@ def align_lists(lists, matcher: Callable = default_matcher):
     return lists
 
 
-class EEGDataset:
+class AudioDataset:
     """Loads audio from multiple loaders (with associated transforms)
     for a specified number of samples. Excerpts are drawn randomly
     of the specified duration, above a specified loudness threshold

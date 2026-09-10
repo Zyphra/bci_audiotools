@@ -183,6 +183,7 @@ class AudioSignal(
         offset: float = None,
         duration: float = None,
         state: typing.Union[np.random.RandomState, int] = None,
+        EEG: bool = False,
         **kwargs,
     ):
         """Randomly draw an excerpt of ``duration`` seconds from an
@@ -210,18 +211,46 @@ class AudioSignal(
         --------
         >>> signal = AudioSignal.excerpt("path/to/audio", duration=5)
         """
-        info = util.info(audio_path)
-        total_duration = info.duration
+        if not EEG: 
+            info = util.info(audio_path)
+            total_duration = info.duration
 
-        state = util.random_state(state)
-        lower_bound = 0 if offset is None else offset
-        upper_bound = max(total_duration - duration, 0)
-        offset = state.uniform(lower_bound, upper_bound)
+            state = util.random_state(state)
+            lower_bound = 0 if offset is None else offset
+            upper_bound = max(total_duration - duration, 0)
+            offset = state.uniform(lower_bound, upper_bound)
 
-        signal = cls(audio_path, offset=offset, duration=duration, **kwargs)
-        signal.metadata["offset"] = offset
-        signal.metadata["duration"] = duration
+            signal = cls(audio_path, offset=offset, duration=duration, **kwargs)
+            signal.metadata["offset"] = offset
+            signal.metadata["duration"] = duration
+        #jm
+        if EEG: 
+            import mne
 
+            with mne.io.read_raw_fif(audio_path, preload=False, verbose=False) as raw:
+                sample_rate = raw.info["sfreq"]
+                total_duration = raw.n_times / sample_rate
+
+                state = util.random_state(state)
+                lower_bound = 0 if offset is None else offset
+                upper_bound = max(total_duration - duration, 0)
+                if lower_bound < 0 or lower_bound > upper_bound:
+                    raise ValueError("offset is outside the valid excerpt range")
+                offset = state.uniform(lower_bound, upper_bound)
+
+                start = int(offset * sample_rate)
+                stop = min(start + int(round(duration * sample_rate)), raw.n_times)
+                eeg_channels = mne.pick_types(raw.info, meg=False, eeg=True, exclude="bads")
+                if len(eeg_channels) == 0:
+                    raise ValueError("No usable EEG channels found in the FIF file")
+                channel_idx = int(state.choice(eeg_channels))
+                data = raw.get_data(picks=[channel_idx], start=start, stop=stop)
+
+            signal = cls(data, sample_rate=sample_rate, **kwargs)
+            signal.path_to_file = audio_path
+            signal.metadata["offset"] = start / sample_rate
+            signal.metadata["duration"] = duration
+        import pdb; pdb.set_trace()
         return signal
 
     @classmethod
