@@ -104,10 +104,18 @@ class AudioLoader:
 
         path = audio_info["path"] 
         signal = AudioSignal.zeros(duration, sample_rate, num_channels)
-        # import pdb; pdb.set_trace()
 
-        if path != "none":
-            if offset is None:
+        if path != "none":                                                                                                                                                                                                 
+            if self.EEG:                                                                                                                                                                                                   
+                signal = AudioSignal.excerpt(                                                                                                                                                                              
+                    path,                                                                                                                                                                                                  
+                    offset=offset,
+                    duration=duration,
+                    state=state,
+                    # loudness_cutoff=loudness_cutoff, # cuts out very silent audio, maybe we can use this to filter out flat channels? (also need to think about clipping later)
+                    EEG=True,
+                )
+            elif offset is None:
                 signal = AudioSignal.salient_excerpt(
                     path,
                     duration=duration,
@@ -121,9 +129,8 @@ class AudioLoader:
                     offset=offset,
                     duration=duration,
                 )
-
         if num_channels == 1:
-            signal = signal.to_mono()
+            signal = signal.to_mono() #jm: averages channels if more than 1 channel
         signal = signal.resample(sample_rate)
 
         if signal.duration < duration:
@@ -139,8 +146,10 @@ class AudioLoader:
             "source": str(self.sources[source_idx]),
             "path": str(path),
         }
-        if self.transform is not None:
+        if self.transform is not None: #self.transform defaults to none
             item["transform_args"] = self.transform.instantiate(state, signal=signal)
+        if False: 
+            import pdb; pdb.set_trace()
         return item
 
 

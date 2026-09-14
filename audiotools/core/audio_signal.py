@@ -229,6 +229,9 @@ class AudioSignal(
 
             with mne.io.read_raw_fif(audio_path, preload=False, verbose=False) as raw:
                 sample_rate = raw.info["sfreq"]
+                if not float(sample_rate).is_integer(): #jm: Julius (PyTorch library)requires int sample rate, MNE hands out float as default
+                    raise ValueError(f"Expected an integer EEG sample rate, got {sample_rate}")
+                sample_rate = int(sample_rate)
                 total_duration = raw.n_times / sample_rate
 
                 state = util.random_state(state)
@@ -250,7 +253,8 @@ class AudioSignal(
             signal.path_to_file = audio_path
             signal.metadata["offset"] = start / sample_rate
             signal.metadata["duration"] = duration
-        import pdb; pdb.set_trace()
+        if False:
+            import pdb; pdb.set_trace()
         return signal
 
     @classmethod
