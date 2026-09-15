@@ -1590,3 +1590,28 @@ class SpectralDenoising(Equalizer):
         kwargs["denoise_amount"] = util.sample_from_dist(self.denoise_amount, state)
         kwargs["nz"] = AudioSignal(state.randn(22050), 44100)
         return kwargs
+
+
+class EEGNormalize(BaseTransform): #jm
+    """Centers each channel and scales it to a target standard deviation."""
+
+    def __init__(
+        self,
+        target_std: float = 0.3,
+        clip: float = 1.0,
+        name: str = None,
+        prob: float = 1.0,
+    ):
+        super().__init__(name=name, prob=prob)
+        self.target_std = target_std
+        self.clip = clip
+
+    def _transform(self, signal):
+        x = signal.audio_data
+        mean = x.mean(dim=-1, keepdim=True)
+        std = x.std(dim=-1, keepdim=True).clamp_min(1e-8)
+        x = (x - mean) * (self.target_std / std)
+        if self.clip is not None:
+            x = x.clamp(-self.clip, self.clip)
+        signal.audio_data = x
+        return signal
