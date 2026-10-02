@@ -9,6 +9,7 @@ from torch.utils.data import SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
 from ..core import AudioSignal
+from ..core import fif_index
 from ..core import util
 
 
@@ -73,6 +74,12 @@ class AudioLoader:
         self.weights = weights
         self.transform = transform
         self.EEG = EEG #jm
+        # Opening a .fif with MNE for every example is slow, so index each file once.
+        self.fif_index = {}
+        if EEG:
+            self.fif_index = fif_index.load_index(
+                [x["path"] for src in self.audio_lists for x in src if x["path"] != "none"]
+            )
 
 
     def __call__(
@@ -114,6 +121,7 @@ class AudioLoader:
                     state=state,
                     # loudness_cutoff=loudness_cutoff, # cuts out very silent audio, maybe we can use this to filter out flat channels? (also need to think about clipping later)
                     EEG=True,
+                    fif_entry=self.fif_index.get(path),
                 )
             elif offset is None:
                 signal = AudioSignal.salient_excerpt(

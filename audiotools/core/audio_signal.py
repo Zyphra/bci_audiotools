@@ -14,6 +14,7 @@ import numpy as np
 import soundfile
 import torch
 
+from . import fif_index
 from . import util
 from .display import DisplayMixin
 from .dsp import DSPMixin
@@ -184,6 +185,7 @@ class AudioSignal(
         duration: float = None,
         state: typing.Union[np.random.RandomState, int] = None,
         EEG: bool = False,
+        fif_entry: dict = None,
         **kwargs,
     ):
         """Randomly draw an excerpt of ``duration`` seconds from an
@@ -201,6 +203,12 @@ class AudioSignal(
             Duration of excerpt, in seconds, by default None
         state : typing.Union[np.random.RandomState, int], optional
             RandomState or seed of random state, by default None
+        EEG : bool, optional
+            Whether ``audio_path`` is a ``.fif`` file, by default False
+        fif_entry : dict, optional
+            Index entry of the ``.fif`` file from
+            :py:func:`audiotools.core.fif_index.load_index`. Gives the same
+            excerpt without parsing the file, by default None
 
         Returns
         -------
@@ -225,14 +233,25 @@ class AudioSignal(
             signal.metadata["duration"] = duration
         #jm
         if EEG: 
-            import mne
+            # With a fif_index entry we know where the data is and read only the
+            # excerpt. Without one, MNE has to parse the file, which on Lustre
+            # reads the whole file (see fif_index.py).
+            raw = None
+            if fif_entry is None:
+                import mne
 
-            with mne.io.read_raw_fif(audio_path, preload=False, verbose=False) as raw:
-                sample_rate = raw.info["sfreq"]
+                raw = mne.io.read_raw_fif(audio_path, preload=False, verbose=False)
+                sample_rate, n_times = raw.info["sfreq"], raw.n_times
+                eeg_channels = mne.pick_types(raw.info, meg=False, eeg=True, exclude="bads")
+            else:
+                sample_rate, n_times = fif_entry["sfreq"], fif_entry["n_times"]
+                eeg_channels = fif_entry["eeg_picks"]
+
+            try:
                 if not float(sample_rate).is_integer(): #jm: Julius (PyTorch library)requires int sample rate, MNE hands out float as default
                     raise ValueError(f"Expected an integer EEG sample rate, got {sample_rate}")
                 sample_rate = int(sample_rate)
-                total_duration = raw.n_times / sample_rate
+                total_duration = n_times / sample_rate
 
                 state = util.random_state(state)
                 lower_bound = 0 if offset is None else offset
@@ -242,12 +261,19 @@ class AudioSignal(
                 offset = state.uniform(lower_bound, upper_bound)
 
                 start = int(offset * sample_rate)
-                stop = min(start + int(round(duration * sample_rate)), raw.n_times)
-                eeg_channels = mne.pick_types(raw.info, meg=False, eeg=True, exclude="bads")
+                stop = min(start + int(round(duration * sample_rate)), n_times)
                 if len(eeg_channels) == 0:
                     raise ValueError("No usable EEG channels found in the FIF file")
                 channel_idx = int(state.choice(eeg_channels))
-                data = raw.get_data(picks=[channel_idx], start=start, stop=stop)
+                if raw is None:
+                    data = fif_index.read_excerpt(
+                        audio_path, fif_entry, start, stop, [channel_idx]
+                    )
+                else:
+                    data = raw.get_data(picks=[channel_idx], start=start, stop=stop)
+            finally:
+                if raw is not None:
+                    raw.close()
 
             signal = cls(data, sample_rate=sample_rate, **kwargs)
             signal.path_to_file = audio_path
