@@ -186,6 +186,8 @@ class AudioSignal(
         state: typing.Union[np.random.RandomState, int] = None,
         EEG: bool = False,
         fif_entry: dict = None,
+        eeg_all_channels: bool = False,
+        eeg_coordinates: bool = False,
         **kwargs,
     ):
         """Randomly draw an excerpt of ``duration`` seconds from an
@@ -209,6 +211,11 @@ class AudioSignal(
             Index entry of the ``.fif`` file from
             :py:func:`audiotools.core.fif_index.load_index`. Gives the same
             excerpt without parsing the file, by default None
+        eeg_all_channels : bool, optional
+            Read all non-bad EEG channels and include channel_names and
+            channel_xyz (metres, [C, 3]) in metadata. Defaults to False.
+        eeg_coordinates : bool, optional
+            Include coordinates for the sampled EEG channel without changing sampling.
 
         Returns
         -------
@@ -264,13 +271,24 @@ class AudioSignal(
                 stop = min(start + int(round(duration * sample_rate)), n_times)
                 if len(eeg_channels) == 0:
                     raise ValueError("No usable EEG channels found in the FIF file")
-                channel_idx = int(state.choice(eeg_channels))
+                picks = eeg_channels if eeg_all_channels else [int(state.choice(eeg_channels))]
                 if raw is None:
                     data = fif_index.read_excerpt(
-                        audio_path, fif_entry, start, stop, [channel_idx]
+                        audio_path, fif_entry, start, stop, picks
                     )
+                    if eeg_all_channels or eeg_coordinates:
+                        channel_names = [fif_entry["channel_names"][i] for i in picks]
+                        channel_xyz = fif_entry["channel_xyz"][picks]
                 else:
-                    data = raw.get_data(picks=[channel_idx], start=start, stop=stop)
+                    data = raw.get_data(picks=picks, start=start, stop=stop)
+                    if eeg_all_channels or eeg_coordinates:
+                        channel_names = [raw.ch_names[i] for i in picks]
+                        channel_xyz = np.array([raw.info["chs"][i]["loc"][:3] for i in picks], np.float32)
+                if eeg_all_channels or eeg_coordinates:
+                    valid = np.isfinite(channel_xyz).all(1) & np.any(channel_xyz != 0, axis=1)
+                    if not valid.all():
+                        missing = [name for name, ok in zip(channel_names, valid) if not ok]
+                        raise ValueError(f"Missing EEG coordinates in {audio_path}: {missing}")
             finally:
                 if raw is not None:
                     raw.close()
@@ -279,6 +297,9 @@ class AudioSignal(
             signal.path_to_file = audio_path
             signal.metadata["offset"] = start / sample_rate
             signal.metadata["duration"] = duration
+            if eeg_all_channels or eeg_coordinates:
+                signal.metadata["channel_names"] = channel_names
+                signal.metadata["channel_xyz"] = channel_xyz
         if False:
             import pdb; pdb.set_trace()
         return signal

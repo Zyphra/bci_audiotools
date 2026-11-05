@@ -85,6 +85,8 @@ def index_fif(path: str, buffering: int = 0):
         "eeg_picks": np.asarray(
             mne.pick_types(info, meg=False, eeg=True, exclude="bads"), np.int32
         ),
+        "channel_names": list(info["ch_names"]),
+        "channel_xyz": np.array([ch["loc"][:3] for ch in info["chs"]], np.float32),
         "cals": np.array([ch["range"] * ch["cal"] for ch in info["chs"]], np.float64),
         "size": st.st_size,
         "mtime_ns": st.st_mtime_ns,
@@ -198,7 +200,9 @@ def load_index(paths: List[str], cache_dir: str = None, num_workers: int = None)
         p
         for p in paths
         if stats[p] is not None
-        and (p not in index or (index[p]["size"], index[p]["mtime_ns"]) != stats[p])
+        and (p not in index or "channel_xyz" not in index[p]
+             or "channel_names" not in index[p]
+             or (index[p]["size"], index[p]["mtime_ns"]) != stats[p])
     ]
     if todo:
         if num_workers is None:

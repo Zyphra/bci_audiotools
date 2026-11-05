@@ -40,6 +40,12 @@ class AudioLoader:
         Whether to shuffle the files within the dataloader. Defaults to True.
     shuffle_state: int
         State to use to seed the shuffle of the files.
+    eeg_all_channels: bool
+        With EEG=True, keep all non-bad EEG channels and return channel_names
+        and channel_xyz [C, 3] in metres. Overrides num_channels; defaults to False.
+        Channel counts can vary; batching across counts is left to the caller.
+    eeg_coordinates: bool
+        Return coordinates for the sampled channel without enabling all-channel loading.
     """
 
     def __init__(
@@ -52,8 +58,12 @@ class AudioLoader:
         ext: List[str] = None,
         shuffle: bool = True,
         shuffle_state: int = 0,
-        EEG: bool = False
+        EEG: bool = False,
+        eeg_all_channels: bool = False,
+        eeg_coordinates: bool = False,
     ):
+        if (eeg_all_channels or eeg_coordinates) and not EEG:
+            raise ValueError("EEG coordinates and all-channel loading require EEG=True")
         if ext is None:
             ext = util.EEG_EXTENSIONS if EEG else util.AUDIO_EXTENSIONS
 
@@ -74,6 +84,8 @@ class AudioLoader:
         self.weights = weights
         self.transform = transform
         self.EEG = EEG #jm
+        self.eeg_all_channels = eeg_all_channels
+        self.eeg_coordinates = eeg_coordinates or eeg_all_channels
         # Opening a .fif with MNE for every example is slow, so index each file once.
         self.fif_index = {}
         if EEG:
@@ -110,6 +122,8 @@ class AudioLoader:
             )
 
         path = audio_info["path"] 
+        if self.eeg_coordinates and path == "none":
+            raise ValueError("EEG coordinates require a recording")
         signal = AudioSignal.zeros(duration, sample_rate, num_channels)
 
         if path != "none":                                                                                                                                                                                                 
@@ -122,6 +136,8 @@ class AudioLoader:
                     # loudness_cutoff=loudness_cutoff, # cuts out very silent audio, maybe we can use this to filter out flat channels? (also need to think about clipping later)
                     EEG=True,
                     fif_entry=self.fif_index.get(path),
+                    eeg_all_channels=self.eeg_all_channels,
+                    eeg_coordinates=self.eeg_coordinates,
                 )
             elif offset is None:
                 signal = AudioSignal.salient_excerpt(
@@ -137,7 +153,7 @@ class AudioLoader:
                     offset=offset,
                     duration=duration,
                 )
-        if num_channels == 1:
+        if num_channels == 1 and not self.eeg_all_channels:
             signal = signal.to_mono() #jm: averages channels if more than 1 channel
         signal = signal.resample(sample_rate)
 
@@ -154,6 +170,9 @@ class AudioLoader:
             "source": str(self.sources[source_idx]),
             "path": str(path),
         }
+        if self.eeg_coordinates:
+            item["channel_names"] = signal.metadata["channel_names"]
+            item["channel_xyz"] = signal.metadata["channel_xyz"]
         if self.transform is not None: #self.transform defaults to none
             item["transform_args"] = self.transform.instantiate(state, signal=signal)
         if False: 
